@@ -17,7 +17,7 @@ from Utilities import*
 ### 1) Simulation Fundamentals
 
 # 1.1) Simulation discretization parameters
-Nsim = 40 # Simulation length
+Nsim = 10 # Simulation length
 
 N = 100    # Horizon
 
@@ -27,7 +27,7 @@ h = 0.10 # Time step
 xp = SX.sym("xp", 5) # process state vector       
 x = SX.sym("x", 5)  # model state vector          
 u = SX.sym("u", 2)  # control vector              
-y = SX.sym("y", 2)  # measured output vector      
+y = SX.sym("y", 5)  # measured output vector      
 d = SX.sym("d", 0)  # disturbance        
 # d = SX.sym("d", 2)  # disturbance               
 
@@ -76,7 +76,7 @@ def User_fxp_Cont(x,t,u,pxp,pxmp):
 
 
     fx_p1 = -cs * (x[3]-x[1]) / ms - ks * (x[2] - x[0]) / ms - Ns * (x[2] - x[0])**3 / ms - u[0] / ms
-    fx_p2 =  cs * (x[3]-x[1]) / ms + ks * (x[2] - x[0]) / ms - Ns * (x[2] - x[0])**3 / ms - cus * (x[1] - x[4]) / ms - kus * x[0] / ms - kus * u[1] / ms + u[0] / ms
+    fx_p2 =  cs * (x[3]-x[1]) / ms + ks * (x[2] - x[0]) / ms - Ns * (x[2] - x[0])**3 / ms - cus * (x[1] - x[4]) / ms - kus * x[0] / ms + kus * u[1] / ms + u[0] / ms
     
     fx_p = vertcat\
     (
@@ -110,6 +110,9 @@ def User_fyp(x,u,t,pyp,pymp):
     
     fy_p = vertcat\
     (\
+    x[0],\
+    x[1],\
+    x[2],\
     x[3],\
     x[4] \
     )
@@ -152,7 +155,7 @@ def User_fxm_Cont(x,u,d,t,px):
 
 
     fx_p1 = -cs * (x[3]-x[1]) / ms - ks * (x[2] - x[0]) / ms - Ns * (x[2] - x[0])**3 / ms - u[0] / ms
-    fx_p2 =  cs * (x[3]-x[1]) / ms + ks * (x[2] - x[0]) / ms - Ns * (x[2] - x[0])**3 / ms - cus * (x[1] - x[4]) / ms - kus * x[0] / ms - kus * u[1] / ms + u[0] / ms
+    fx_p2 =  cs * (x[3]-x[1]) / ms + ks * (x[2] - x[0]) / ms - Ns * (x[2] - x[0])**3 / ms - cus * (x[1] - x[4]) / ms - kus * x[0] / ms + kus * u[1] / ms + u[0] / ms
     
     x_model = vertcat\
     (
@@ -161,7 +164,7 @@ def User_fxm_Cont(x,u,d,t,px):
     fx_p2, \
     x[1], \
     x[4]\
-    )    
+    )      
     
     return x_model
 
@@ -184,8 +187,11 @@ def User_fym(x,u,d,t,py):
     
     fy_model = vertcat\
                 (\
-                x[3],\
-                x[4]\
+    x[0],\
+    x[1],\
+    x[2],\
+    x[3],\
+    x[4] \
                 )
     
     return fy_model
@@ -238,8 +244,10 @@ def defSP(t):
     OUTPUTS:
     + ysp, usp, xsp - Input, output and state setpoint values      
     """ 
-    xsp = np.array([0.0, 0, 0,0,0]) # State setpoints  
-    ysp = np.array([0, 0]) # Output setpoint
+    xsp = np.array([0.0, 0, 0.0,0,0]) # State setpoints  
+    # ysp = np.array([0.0, 0]) # Output setpoint
+    ysp = np.array([0.0, 0,0,0,0]) # Output setpoint
+
     usp = np.array([0, 0]) # Control setpoints
 
     return [ysp, usp, xsp]
@@ -254,8 +262,8 @@ xmin = np.array([-100, -100, -100, -100,-100])
 xmax = np.array([100, 100, 100, 100, 100])
 
 ## Output bounds
-ymin = np.array([ -300,  -300])
-ymax = np.array([ 300,  300])
+ymin = np.array([ -300,  -300,  -300,  -300, -300])
+ymax = np.array([ 300,  300, 300,  300, 300])
 
 ## Disturbance bounds
 dmin = -100*np.ones((d.size1(),1))

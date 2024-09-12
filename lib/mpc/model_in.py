@@ -1,8 +1,19 @@
+
 import numpy as np
 
 
-class mpc_options:
-    def __init__(self, x_expr, u_expr, f_expr, x_steady_state, model_in, **kwargs):
+class model_in:
+
+    def __init__(self):
+
+        linearity = 'linear'
+        A = None
+        B = None
+        C = None
+        D = None
+
+        f = None
+
         # Input bounds
         umin = None
         umax = None
