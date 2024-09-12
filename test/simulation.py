@@ -28,6 +28,9 @@ class simulation:
         self.x_curr = None    # current state
         self.x_curr_n = None  # current state with noise
 
+        self.closed_loop_x_traj = x0.reshape(1,x0.shape[0])
+        self.closed_loop_u_traj = u0.reshape(1,u0.shape[0])
+
         self.mpc_init()
 
 
@@ -84,6 +87,12 @@ class simulation:
             u0 = u_traj[0][0]
             self.x_curr = self.correct_model.simulate(self.x_curr, u0)
             print(self.x_curr)
+
+            # Store trajectory 
+            self.closed_loop_x_traj = np.concatenate([self.closed_loop_x_traj, self.x_curr.T],0)
+            self.closed_loop_u_traj = np.concatenate([self.closed_loop_u_traj, np.array([[u0]])],0)
+
+            # self.closed_loop_x_traj = 
         return
 
 
@@ -123,12 +132,47 @@ def plot_results(dt, x_traj, u_traj, N_horizon):
     plt.show()
 
 
+def plot_results_cl(dt, n_sim, x_traj, u_traj):
+    # Time vector for the trajectory
+    time_vector = np.arange(0, (n_sim+1) * dt, dt)
+
+    # Create subplots for state and control plots
+    fig, axs = plt.subplots(5, 1, figsize=(10, 12))
+
+    # Plot state trajectories (zs, z_s, zus, z_us)
+    axs[0].plot(time_vector, x_traj[:, 0], label='Suspension deflection (zs - zus)')
+    axs[0].set_ylabel('zs - zus (m)')
+    axs[0].legend()
+
+    axs[1].plot(time_vector, x_traj[:, 1], label='Body velocity (z_s)')
+    axs[1].set_ylabel('z_s (m/s)')
+    axs[1].legend()
+
+    axs[2].plot(time_vector, x_traj[:, 2], label='Tire deflection (zus - zr)')
+    axs[2].set_ylabel('zus - zr (m)')
+    axs[2].legend()
+
+    axs[3].plot(time_vector, x_traj[:, 3], label='Tire velocity (z_us)')
+    axs[3].set_ylabel('z_us (m/s)')
+    axs[3].legend()
+
+    # Plot control input (Fz_rc) (one step fewer than states)
+    axs[4].plot(time_vector[:], u_traj[:,0], label='Control Input (Fz_rc)', color='r')
+    axs[4].set_ylabel('Control Input (N)')
+    axs[4].set_xlabel('Time (s)')
+    axs[4].legend()
+    plt.tight_layout()
+    plt.show()
+
 
 
 
 if __name__ == "__main__":
     x0 = np.array([0.01, 0.0, 0.01, 0.0])
     u0 = np.array([0.0])
-    sim = simulation(0.01, 1000, x0, u0)
-    sim.closed_loop_mpc(10)
+    dt = 0.01
+    nsim = 1000
+    sim = simulation(dt, 1000, x0, u0)
+    sim.closed_loop_mpc(nsim)
+    plot_results_cl(dt, nsim, sim.closed_loop_x_traj, sim.closed_loop_u_traj)
     # sim.open_loop_mpc()
