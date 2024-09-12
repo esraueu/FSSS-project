@@ -3,8 +3,9 @@ import casadi as ca
 from dataclasses import dataclass
 from utils import integrate_RK4, plot_cstr
 from ocp_solver_ipopt import OCPsolver
-from model import Model
 import matplotlib.pyplot as plt
+from model import Model
+
 
 @dataclass
 class SuspensionParameters:
@@ -20,16 +21,20 @@ class SuspensionParameters:
 
 @dataclass
 class MpcSuspensionParameters:
-    Q: np.ndarray
-    R: np.ndarray
-    Tf: float = 2.5  # Prediction horizon length (seconds)
+    # Define cost matrices
+    Q: np.ndarray = np.diag([10.0, 1000.0, 10.0, 1000.0])  # State cost (for suspension travel, body velocity, tire deflection, tire velocity)
+    R: np.ndarray = np.diag([0.01])  # Input cost (control force)
+      
     N: int = 30  # Number of control intervals
-    dt: float = 0.05  # Sampling time
-    num_rk4_steps: int = 10
+    x0: np.ndarray = np.array([0.01, 0.0, 0.01, 0.0])
+    u0: np.ndarray = np.array([0.01])
+    
+    umin = np.array([-500])
+    umax = np.array([500])
 
-    def __init__(self, xs, us):
-        self.Q = np.eye(len(xs))  # State cost weight
-        self.R = np.eye(len(us))  # Input cost weight
+    xmax = np.array([10, 10, 10, 10, 10])
+    xmin = np.array([-10, -10, -10, -10, -10])
+
 
 def setup_suspension_model(dt: float, num_steps: int, params: SuspensionParameters):
 
@@ -54,15 +59,7 @@ def setup_suspension_model(dt: float, num_steps: int, params: SuspensionParamete
         [-1 / params.Mus]
     ])
 
-    # State Space dynamics
-    f_expl = ca.mtimes(A, x) + ca.mtimes(B, u)
-
-    # Discretize dynamics using RK4
-    f_discrete = integrate_RK4(x, u, f_expl, dt, num_steps)
-
-    model = Model(x, u, f_discrete, params.xs, params.us, name='suspension')
-
-    return model
+    return A,B,x,u
 
 
 # Function to plot control inputs and state trajectories
@@ -104,19 +101,29 @@ def main_mpc_open_loop():
     params = SuspensionParameters()
 
     # Time discretization and horizon
-    dt = 0.05
-    num_steps = 10
-    N_horizon = 50
-
-    # Setup model
-    model = setup_suspension_model(dt, num_steps, params)
+    dt = 0.01
+    num_steps = 100
+    N_horizon = 30
 
     # Define initial state (perturbed from xs)
     x0 = np.array([0.01, 0.0, 0.01, 0.0])
+    u0 = np.array([0.0])
+
+    # Setup model
+    A,B,x,u = setup_suspension_model(dt, num_steps, params)
+
+    # State Space dynamics
+    f_expl = ca.mtimes(A, x) + ca.mtimes(B, u) + x0
+
+    # Discretize dynamics using RK4
+    f_discrete = integrate_RK4(x, u, f_expl, dt, num_steps)
+
+    model = Model(x, u, f_discrete, x0, u0, name='suspension')
+
 
     # Define cost matrices
-    Q = np.diag([10.0, 10.0, 10.0, 10.0])  # State cost (for suspension travel, body velocity, tire deflection, tire velocity)
-    R = np.diag([1.0])  # Input cost (control force)
+    Q = np.diag([10.0, 1000.0, 10.0, 1000.0])  # State cost (for suspension travel, body velocity, tire deflection, tire velocity)
+    R = np.diag([0.01])  # Input cost (control force)
 
     # MPC problem setup
     # Stage cost as a symbolic expression
