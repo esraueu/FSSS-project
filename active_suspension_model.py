@@ -3,8 +3,9 @@ import casadi as ca
 from dataclasses import dataclass
 from utils import integrate_RK4, plot_cstr
 from ocp_solver_ipopt import OCPsolver
-from model import Model
 import matplotlib.pyplot as plt
+from model import Model
+
 
 @dataclass
 class SuspensionParameters:
@@ -20,24 +21,25 @@ class SuspensionParameters:
 
 @dataclass
 class MpcSuspensionParameters:
-    Q: np.ndarray
-    R: np.ndarray
-    Tf: float = 1.0  # Prediction horizon length (seconds)
-    N: int = 20  # Number of control intervals
-    dt: float = 0.05  # Sampling time
-    num_rk4_steps: int = 10
+    # Define cost matrices
+    Q: np.ndarray = np.diag([10.0, 1000.0, 10.0, 1000.0])  # State cost (for suspension travel, body velocity, tire deflection, tire velocity)
+    R: np.ndarray = np.diag([0.01, 0.01])  # Input cost (control force)
+      
+    N: int = 30  # Number of control intervals
+    x0: np.ndarray = np.array([0.01, 0.0, 0.01, 0.0])
+    u0: np.ndarray = np.array([0.01, 0.01])
+    
+    umin = np.array([-1, -500])*u0
+    umax = np.array([1, -500])*u0
 
-    def __init__(self, xs, us):
-        self.Q = np.eye(len(xs))  # State cost weight
-        self.R = np.eye(len(us))  # Input cost weight
 
 def setup_suspension_model(dt: float, num_steps: int, params: SuspensionParameters):
 
-    # States: [zs - zus, z_s, zus - zr, z_us]
+    # States: [zs - zus, dz_s, zus - zr, dz_us]
     x = ca.SX.sym("x", 4)
 
-    # Inputs: [Fz_rc]
-    u = ca.SX.sym("u", 1)
+    # Inputs: [road input [zr_dot],Fz_rc]
+    u = ca.SX.sym("u", 2) 
 
     # Dynamics matrices
     A = np.array([
@@ -48,30 +50,23 @@ def setup_suspension_model(dt: float, num_steps: int, params: SuspensionParamete
     ])
 
     B = np.array([
-        [0],
-        [1 / params.Ms],
-        [0],
-        [-1 / params.Mus]
+        [0,0],
+        [0, 1 / params.Ms],
+        [-1, 0],
+        [params.Bus / params.Mus, -1 / params.Mus]
     ])
 
-    # State Space dynamics
-    f_expl = ca.mtimes(A, x) + ca.mtimes(B, u)
-
-    # Discretize dynamics using RK4
-    f_discrete = integrate_RK4(x, u, f_expl, dt, num_steps)
-
-    model = Model(x, u, f_discrete, params.xs, params.us, name='suspension')
-
-    return model
+    return A,B,x,u
 
 
 # Function to plot control inputs and state trajectories
 def plot_results(dt, x_traj, u_traj, N_horizon):
     # Time vector for the trajectory
     time_vector = np.arange(0, (N_horizon+1) * dt, dt)
+    time_vector1 = np.arange(0, (N_horizon) * dt, dt)
 
     # Create subplots for state and control plots
-    fig, axs = plt.subplots(5, 1, figsize=(10, 12))
+    fig, axs = plt.subplots(6, 1, figsize=(10, 12))
 
     # Plot state trajectories (zs, z_s, zus, z_us)
     axs[0].plot(time_vector, x_traj[:, 0], label='Suspension deflection (zs - zus)')
@@ -90,11 +85,16 @@ def plot_results(dt, x_traj, u_traj, N_horizon):
     axs[3].set_ylabel('z_us (m/s)')
     axs[3].legend()
 
-    # Plot control input (Fz_rc) (one step fewer than states)
-    axs[4].plot(time_vector[:-1], u_traj.T, label='Control Input (Fz_rc)', color='r')
-    axs[4].set_ylabel('Control Input (N)')
+    axs[4].plot(time_vector1, u_traj.T[:, 0], label='Road Input (z_r)', color='r')
+    axs[4].set_ylabel('Control Input (m)')
     axs[4].set_xlabel('Time (s)')
     axs[4].legend()
+
+    # Plot control input (Fz_rc) (one step fewer than states)
+    axs[5].plot(time_vector1, u_traj.T[:, 1], label='Control Input (Fz_rc)', color='r')
+    axs[5].set_ylabel('Control Input (N)')
+    axs[5].set_xlabel('Time (s)')
+    axs[5].legend()
     plt.tight_layout()
     plt.show()
 
@@ -104,19 +104,28 @@ def main_mpc_open_loop():
     params = SuspensionParameters()
 
     # Time discretization and horizon
-    dt = 0.05
-    num_steps = 10
-    N_horizon = 20
-
-    # Setup model
-    model = setup_suspension_model(dt, num_steps, params)
+    dt = 0.01
+    num_steps = 100
+    N_horizon = 30
 
     # Define initial state (perturbed from xs)
     x0 = np.array([0.01, 0.0, 0.01, 0.0])
+    u0 = np.array([0.01, 0.01])
+
+    # Setup model
+    A,B,x,u = setup_suspension_model(dt, num_steps, params)
+
+    # State Space dynamics
+    f_expl = ca.mtimes(A, x) + ca.mtimes(B, u) + x0
+
+    # Discretize dynamics using RK4
+    f_discrete = integrate_RK4(x, u, f_expl, dt, num_steps)
+
+    model = Model(x, u, f_discrete, x0, u0, name='suspension')
 
     # Define cost matrices
-    Q = np.diag([100.0, 1.0, 100.0, 1.0])  # State cost (for suspension travel, body velocity, tire deflection, tire velocity)
-    R = np.diag([1.0])  # Input cost (control force)
+    Q = np.diag([10.0, 1000.0, 10.0, 1000.0])  # State cost (for suspension travel, body velocity, tire deflection, tire velocity)
+    R = np.diag([0.01, 0.01])  # Input cost (control force)
 
     # MPC problem setup
     # Stage cost as a symbolic expression
@@ -127,23 +136,24 @@ def main_mpc_open_loop():
     # Terminal cost as a symbolic expression
     terminal_cost = 0.5 * ca.mtimes([delta_x.T, Q, delta_x])
 
-    umin = np.array([-500])  # Min control force
-    umax = np.array([500])   # Maximum control force
+    umin = np.array([-1, -500])  # Min control force
+    umax = np.array([1, 500])   # Maximum control force
 
     # Initialize OCP solver
     ocp_solver = OCPsolver(model, stage_cost, terminal_cost, N_horizon, umax, umin)
 
     # Solve OCP for open-loop control
-    u_init = np.zeros((1, N_horizon))  # Initial guess for control inputs
+    u_init = np.zeros((2, N_horizon))  # Initial guess for control inputs
     u_traj, cost = ocp_solver.solve(x0, u_traj_init=u_init)
 
     # Simulate resulting state trajectory
     x_traj = model.simulate_traj(x0, u_traj)
-
+    x_traj = np.transpose(x_traj)
     # Ensure state trajectory has N_horizon + 1 steps (states at each time step)
     assert x_traj.shape == (N_horizon+1, 4), "State trajectory dimension mismatch."
     # Plot the control and state results
     plot_results(dt, x_traj, u_traj, N_horizon)
+    print(u_traj)
 
 if __name__ == "__main__":
     main_mpc_open_loop()
